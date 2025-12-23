@@ -137,13 +137,13 @@ https://xueqiu.com/
 
 原始的网页内容：
 
-![xueqiu](..\resources\xueqiu.jpg)
+![xueqiu](../resources/xueqiu.jpg)
 
 
 
 运行 sample.exe 后，将会修改网页。再次访问网站时，内容被篡改：
 
-![changed](..\resources\changed.jpg)
+![changed](../resources/changed.jpg)
 
 ------
 
@@ -177,18 +177,18 @@ typedef struct http_info {
 	size_t http_content_length;
 }http_info_t;
 
-typedef enum FILTER_RESULT (*cbfilter_by_host)(const char* host_name);
+typedef enum FILTER_RESULT (*cbfilter_by_host)(const char* host_name, void* arg);
+typedef int (*cbfilter_by_http_header)(http_info_t *phi, void* arg);
 typedef int (*cb_http_response)(
 	void* arg, http_info_t* info, //in
-	char** out, size_t* out_len, int *need_free); //out
+	char** out, size_t* out_len, FreeFunc* cb_free); //out
 
 mitm_ctx* mitm_init(char* ip, unsigned short port);
-void mitm_exit(struct mitm_ctx_st* ctx);
 int mitm_run(struct mitm_ctx_st* ctx, void* arg);
-
 void mitm_set_work_mode(mitm_ctx* ctx, enum WORK_MODE mode);
 
 void register_filter_cb_host(mitm_ctx* ctx, cbfilter_by_host cbfunc);
+void register_filter_cb_cared(mitm_ctx* ctx, cbfilter_by_http_header cbfunc);
 void register_action_cb_http(mitm_ctx* ctx, cb_http_response on_response);
 ```
 
@@ -215,9 +215,13 @@ int main(int argc, char** argv)
 		goto fail;
 	//define filter system
 	register_filter_cb_host(mitm, cb_host_localhost);
+	register_filter_cb_cared(mitm, cb_cared);
 	register_action_cb_http(mitm, http_response);
 
-	mitm_run(mitm, NULL);//main loop
+	char* app_arg = malloc(32);
+	strcpy(app_arg, "hello world");
+	mitm_run(mitm, app_arg); //main loop
+	free(app_arg);
 	ret = 0;
 fail:
 	mitm_exit(mitm);
@@ -262,10 +266,10 @@ cb_host_localhost：
 否则返回 FILTER_RESULT_PASS。
 
 ```c
-enum FILTER_RESULT cb_host_localhost(const char* host_name)
+enum FILTER_RESULT cb_host_localhost(const char* host_name, void* arg)
 {
 	if (strstr(host_name, "xueqiu")) {
-		return FILTER_RESULT_SPLIT; //只破解这个网站
+		return FILTER_RESULT_SPLIT; //crack this website
 	}
 	return FILTER_RESULT_PASS; //forward only
 }
@@ -280,8 +284,23 @@ http_response：
 如果没有修改，则返回0
 
 ```c
-int http_response(void* arg, http_info_t* http_ctx,
-	char** out, size_t* out_len, int* need_free)
+int cb_cared(http_info_t* http_ctx, void* arg)
+{
+	if (!http_ctx->http_content_length || !http_ctx->http_host)
+		return 0;
+
+	if(!strcmp(http_ctx->http_host, "xueqiu.com")){
+		printf("app will inject website \"%s\", arg is \"%s\"\n",
+			http_ctx->http_host, (char*)arg);
+		return 1;
+	}
+	
+	return 0;
+}
+
+int http_response(
+	void* arg, http_info_t* http_ctx, //in
+	char** out, size_t* out_len, FreeFunc* cb_free)
 {
 	//only care http response
 	if (!http_ctx->response)
@@ -295,10 +314,11 @@ int http_response(void* arg, http_info_t* http_ctx,
 	if (_strnicmp("text/html", http_ctx->http_content_type, strlen("text/html")))
 		return 0;
 
+	//printf("%s body len is %lld\n", http_ctx->http_uri, http_ctx->http_content_length);
 	//changed html content
 	*out = html_changed;
 	*out_len = strlen(html_changed);
-	*need_free = 0;
+	*cb_free = NULL; //no need free
 	return 1;
 }
 ```

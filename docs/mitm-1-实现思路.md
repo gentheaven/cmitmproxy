@@ -74,7 +74,7 @@ nginx：1.28.0，https 服务器，用于测试
 
 # 原理
 
-![how-mitmproxy-works-explicit-https](..\jpg\how-mitmproxy-works-explicit-https.png)
+![how-mitmproxy-works-explicit-https](../resources/how-mitmproxy-works-explicit-https.png)
 
 简单的说，就是两边欺骗。MITM 代理就是一个骗子：
 

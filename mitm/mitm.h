@@ -2,9 +2,9 @@
 #define MITM_H
 
 #ifdef MITMLIBRARY_EXPORTS
-#define MITMLIBRARY_API __declspec(dllexport)
+#define MITMLIBRARY_API extern __declspec(dllexport)
 #else
-#define MITMLIBRARY_API
+#define MITMLIBRARY_API extern __declspec(dllimport)
 #endif
 
 #define DEFAULT_PROXY_ADDR "127.0.0.1"
@@ -104,28 +104,28 @@ typedef struct mitm_ctx_st mitm_ctx;
 extern "C" {
 #endif
 
-extern MITMLIBRARY_API
+MITMLIBRARY_API
 	mitm_ctx* mitm_init(char* ip, unsigned short port);
 
-extern MITMLIBRARY_API
+MITMLIBRARY_API
 	void mitm_exit(struct mitm_ctx_st* ctx);
 
 //arg: in/out used for app
-extern MITMLIBRARY_API
+MITMLIBRARY_API
 	int mitm_run(struct mitm_ctx_st* ctx, void* arg);
 
-extern MITMLIBRARY_API
+MITMLIBRARY_API
 	void mitm_set_work_mode(mitm_ctx* ctx, enum WORK_MODE mode);
 
 //filter by hostname
-extern MITMLIBRARY_API
+MITMLIBRARY_API
 	void register_filter_cb_host(mitm_ctx* ctx, cbfilter_by_host cbfunc);
 
-extern MITMLIBRARY_API
+MITMLIBRARY_API
 	void register_filter_cb_cared(mitm_ctx* ctx, cbfilter_by_http_header cbfunc);
 
 /* action when got http request/response */
-extern MITMLIBRARY_API
+MITMLIBRARY_API
 	void register_action_cb_http(mitm_ctx* ctx, cb_http_response on_response);
 
 //////////////////////////////////////////////////////////////////////////////////
@@ -145,7 +145,7 @@ typedef int (*regex_on_match)(char* head,
  return match count
  return negatvie if error
 */
-extern MITMLIBRARY_API
+MITMLIBRARY_API
 	int regex_match(char* regex, char* str, unsigned int str_len,
 		int find_all,
 		regex_on_match on_match,
@@ -165,7 +165,7 @@ extern MITMLIBRARY_API
  return match count
  return negatvie if error
 */
-extern MITMLIBRARY_API
+MITMLIBRARY_API
 	int regex_replace(char* content, unsigned int content_len,
 		char* regex_match, char* regex_replace,
 		char* chg_content, size_t* chg_len, int reg_extend_flag);

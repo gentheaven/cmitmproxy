@@ -28,7 +28,7 @@ MITM代理：已经破解了https：相当于原始食材
 
 当你用 PC 上的微信观赏微信视频时，如下面这个界面：
 
-![wechat-cover](..\resources\wechat-cover.jpg)
+![wechat-cover](../resources/wechat-cover.jpg)
 
 
 
@@ -36,7 +36,7 @@ MITM 代理会**自动截获**并记录微信短视频的 URL，视频标题，�
 
 然后根据需要，可以下载感兴趣的。界面如下：
 
-![cover](..\resources\cover.jpg)
+![cover](../resources/cover.jpg)
 
 
 

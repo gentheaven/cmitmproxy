@@ -20,13 +20,13 @@
 
 示例程序启动前，访问“雪球网站”，
 
-![changed](..\resources\xueqiu.jpg)
+![changed](../resources/xueqiu.jpg)
 
 
 
 当示例程序启动后，访问同一个网站：
 
-![changed](..\resources\changed.jpg)
+![changed](../resources/changed.jpg)
 
 用证书查看器，可以看到，原来的证书颁发者：**RapidSSL**
 
