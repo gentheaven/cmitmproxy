@@ -4,6 +4,26 @@
 
 
 
+## Features
+
+1. Http/https proxy
+2. Regular expression find and replace for strings
+3. Viewing and modifying the content of HTTP responses
+4. Compression formats supported: **gzip, deflate, br**
+5. Provide sample program: Modify content of the "Xueqiu" website
+6. Based on this proxy, a WeChat video downloader has been developed
+7. Supports viewing and modifying HTTP responses with **chunked**
+
+
+
+## Limitations
+
+1. **Does not support modifying HTTP requests**, only allows viewing HTTP requests
+
+1. Requires **manual certificate installation** (during the first run)
+
+   
+
 
 # Software Architecture
 

@@ -38,7 +38,7 @@ MITM代理，解密/修改 https 流量
 4. 支持 HTTP 响应内容的压缩格式： gzip, deflate, br
 5. 提供示例程序：修改“雪球”网站内容
 6. 基于此代理，开发了微信短视频下载程序
-7. 支持查看 HTTP chunked 响应（需要打开宏 **SUPPORT_CHUNK**）
+7. 支持查看和修改 HTTP chunked 响应
 
 
 
@@ -51,30 +51,7 @@ MITM代理，解密/修改 https 流量
 ## 限制
 
 1. **不支持修改 HTTP 请求**，只可以查看 HTTP 请求
-
 1. 需要**手动安装证书**（第一次运行时）
-
-1. 有时下载视频比较慢，有待改进
-
-1. **可以查看**  HTTP chunked 响应，不支持修改
-
-
-
-## HTTP chunked
-
-```http
-Transfer-Encoding: chunked\r\n
-```
-
-当前  HTTP chunked 支持不完善，默认不支持这个功能。
-
-如果想查看  HTTP chunked 响应，则需要打开宏 **SUPPORT_CHUNK**，在文件 mid.h 中。
-
-不支持修改 chunked 包，只支持查看。
-
-HTTP chunked 组成的包，包含包头，最大 **64KB**。
-
-主要是因为测试用例太少，没有修改  chunked 包的需求。
 
 
 

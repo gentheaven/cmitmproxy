@@ -544,6 +544,43 @@ void change_Content_Length(char** out, size_t new_len)
 	free(ori);
 }
 
+void http_add_chunks(protohttp_ctx_t* http_ctx, 
+	char* changed_buf, size_t head_offset,
+	char* msg, size_t msg_len)
+{
+	size_t offset = head_offset;
+	
+	//add chuncked header
+	//len \r\n data \r\n
+	//len
+	char len_field[16];
+	sprintf(len_field, "%zx", msg_len);
+	size_t len_bytes = strlen(len_field);
+	memcpy(changed_buf + offset, len_field, len_bytes);
+	offset += len_bytes;
+
+	//\r\n
+	memcpy(changed_buf + offset, "\r\n", 2);
+	offset += 2;
+
+	//data
+	memcpy(changed_buf + offset, msg, msg_len);
+	offset += msg_len;
+
+	//\r\n
+	memcpy(changed_buf + offset, "\r\n", 2);
+	offset += 2;
+
+	//add tail: 0\r\n\r\n
+	memcpy(changed_buf + offset, "0\r\n\r\n", 5);
+	offset += 5;
+
+	http_ctx->chg_http = changed_buf;
+	http_ctx->chg_http_len = offset;
+	printf("organize_new_http chunked, total len=%lld, msg_len=%lld\n",
+		http_ctx->chg_http_len, msg_len);
+}
+
 //reorg http header and body to http_ctx->chg_http[chg_http_len]
 //input: phi->http_content and  phi->http_content_length
 void organize_new_http(int changed, protohttp_ctx_t* http_ctx)
@@ -552,7 +589,7 @@ void organize_new_http(int changed, protohttp_ctx_t* http_ctx)
 
 	char* msg = phi->http_content;
 	size_t msg_len = phi->http_content_length;
-	if (changed) {
+	if (changed && !http_ctx->chunked) {
 		change_Content_Length(
 			&http_ctx->lines[http_ctx->cl_index], msg_len);
 	}
@@ -575,6 +612,10 @@ void organize_new_http(int changed, protohttp_ctx_t* http_ctx)
 	sprintf(changed_buf + offset, "\r\n");
 	offset += 2;
 
+	if(http_ctx->chunked){
+		http_add_chunks(http_ctx, changed_buf, offset, msg, msg_len);
+		return;
+	}
 	//msg body
 	memcpy(changed_buf + offset, msg, msg_len);
 	http_ctx->chg_http = changed_buf;
@@ -610,13 +651,6 @@ int decom_content_call_app(protohttp_ctx_t* http_ctx)
 		&http_ctx->out, &http_ctx->out_len, &http_ctx->free_func);
 	if(!msg_body_changed)
 		http_ctx->out = NULL;
-
-	if (http_ctx->chunked) {
-		//not support change content, only support one chunck at first response
-		free(http_ctx->dec_msg);
-		http_ctx->dec_msg = NULL;
-		return 0;
-	}
 
 	if (msg_body_changed) {
 		http_ctx->enc_msg = encode(http_ctx->cmp_mode,
@@ -687,9 +721,8 @@ enum packet_handle_result save_packet(char* http, size_t http_len, protohttp_ctx
 	http_ctx->msg_body_len += copied;
 
 	if(http_ctx->chunked) {
-		//left chunk , only peek, not change; if want change, return PACKET_DISCARD
 		http_ctx->get_all = parse_http_chunk(http_ctx);
-		return PACKET_FORWARD;
+		return PACKET_DISCARD;
 	}
 
 	if (http_ctx->msg_body_len < http_ctx->content_length) {
@@ -726,6 +759,14 @@ void send_changed_http(int msg_body_changed, protohttp_ctx_t* http_ctx)
 	sprintf(changed_buf + offset, "\r\n");
 	offset += 2;
 
+	if(http_ctx->chunked){
+		if(msg_body_changed)
+			http_add_chunks(http_ctx, changed_buf, offset, http_ctx->out, http_ctx->out_len);
+		else
+			http_add_chunks(http_ctx, changed_buf, offset, http_ctx->msg_body, http_ctx->msg_body_len);
+		return;
+	}
+
 	if (msg_body_changed) {//changed content
 		memcpy(changed_buf + offset, http_ctx->out, http_ctx->out_len);
 		change_buf_size = offset + http_ctx->out_len;
@@ -740,7 +781,6 @@ void send_changed_http(int msg_body_changed, protohttp_ctx_t* http_ctx)
 		http_ctx->free_func(http_ctx->out);
 		http_ctx->out = NULL;
 	}
-
 }
 
 //only called by first see http respone header
@@ -960,11 +1000,8 @@ enum packet_handle_result handle_response_first_body(
 				http_ctx->out = NULL;
 		} else {
 			msg_body_changed = decom_content_call_app(http_ctx);
-		}
-
-		//clean
-		if (http_ctx->chunked) {
-			//only one packet, not support change content, suppose msg_body_changed = 0
+			if(msg_body_changed)
+				return PACKET_CHANGE;
 			return PACKET_FORWARD;
 		}
 	} else {
@@ -973,15 +1010,12 @@ enum packet_handle_result handle_response_first_body(
 		  here, msg_body_changed = 0, not free http_ctx->lines for future use
 		  */
 		save_msg_body(http_ctx, phi);
-		//first chunk , only peek, not change, if want change, return PACKET_DISCARD
-		if(http_ctx->chunked)
-			return PACKET_FORWARD;
 		if (http_ctx->right == APP_RIGHT_PEEK)
 			return PACKET_FORWARD; //app only peek content, not change it
 		return PACKET_DISCARD; //app may change content, so discard it
 	}
 
-	if (msg_body_changed) {
+	if (msg_body_changed && !http_ctx->chunked) {
 		change_Content_Length(
 				&http_ctx->lines[http_ctx->cl_index], http_ctx->out_len);
 	}
