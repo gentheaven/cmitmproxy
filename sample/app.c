@@ -60,8 +60,8 @@ int cb_cared(http_info_t* http_ctx, void* arg)
 		return 0;
 
 	if(!strcmp(http_ctx->http_host, "xueqiu.com")){
-		printf("app will inject website \"%s\", arg is \"%s\"\n",
-			http_ctx->http_host, (char*)arg);
+		//printf("app will inject website \"%s\", arg is \"%s\"\n",
+		//	http_ctx->http_host, (char*)arg);
 		return 1;
 	}
 	

@@ -24,7 +24,6 @@
 #include "mitm.h"
 
 //#define DEBUG
-//#define SUPPORT_CHUNK //Transfer-Encoding: chunked\r\n
 
 #define ssize_t long long
 #define strncasecmp _strnicmp

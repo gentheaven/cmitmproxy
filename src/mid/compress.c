@@ -113,54 +113,57 @@ char* gzip_compress(char* src, size_t src_len, size_t* dst_len)
 
 char* gzip_decompress(char* src, size_t src_len, size_t* dst_len)
 {
-	*dst_len = src_len * 5;
-	char *dst = malloc(*dst_len);
+	size_t uncompLength = src_len;
+	size_t half_length = src_len / 2;
+	char* uncomp = (char*)calloc(sizeof(char), uncompLength);
 
-	if (!dst) {
+	z_stream strm;
+	strm.next_in = (Bytef*)src;
+	strm.avail_in = (uInt)src_len;
+	strm.total_out = 0;
+	strm.zalloc = Z_NULL;
+	strm.zfree = Z_NULL;
+
+	int done = 0;
+
+	if(inflateInit2(&strm, (16 + MAX_WBITS)) != Z_OK) {
+		free(uncomp);
 		return NULL;
 	}
 
-	z_stream stream;
-	memset(&stream, 0, sizeof(stream));
-
-	if (inflateInit2(&stream, MAX_WBITS + 16) != Z_OK) {
-		free(dst);
-		return NULL;
-	}
-
-	stream.next_in = (Bytef*)src;
-	stream.avail_in = (uInt)src_len;
-	stream.next_out = (Bytef*)dst;
-	stream.avail_out = (uInt)(*dst_len);
-
-	int ret = Z_OK;
-	while (ret != Z_STREAM_END) {
-		ret = inflate(&stream, Z_NO_FLUSH);
-
-		if (ret == Z_OK) {
-			size_t old_size = *dst_len;
-			*dst_len *= 2;
-			dst = realloc(dst, *dst_len);
-
-			if (!dst) {
-				inflateEnd(&stream);
-				return NULL;
-			}
-
-			stream.next_out = (Bytef*)*dst + old_size;
-			stream.avail_out = (uInt)(*dst_len - old_size);
+	while(!done) {
+		// If our output buffer is too small
+		if(strm.total_out >= uncompLength) {
+			// Increase size of output buffer
+			char* uncomp2 = (char*)calloc(sizeof(char), uncompLength + half_length);
+			memcpy(uncomp2, uncomp, uncompLength);
+			uncompLength += half_length;
+			free(uncomp);
+			uncomp = uncomp2;
 		}
-		else if (ret != Z_STREAM_END) {
-			inflateEnd(&stream);
-			free(dst);
+
+		strm.next_out = (Bytef*)(uncomp + strm.total_out);
+		strm.avail_out = (uInt)(uncompLength - strm.total_out);
+
+		// Inflate another chunk.
+		int err = inflate(&strm, Z_SYNC_FLUSH);
+		if(err == Z_STREAM_END) 
+			done = 1;
+		else if(err != Z_OK)  {
+			//printf("gzip_decompress error, %d\n", err);
+			free(uncomp);
 			return NULL;
 		}
 	}
 
-	*dst_len = stream.total_out;
+	if(inflateEnd(&strm) != Z_OK) {
+		free(uncomp);
+		return NULL;
+	}
 
-	inflateEnd(&stream);
-	return dst;
+	*dst_len = strm.total_out;
+	return uncomp;
+
 }
 
 char* raw_deflate_compress(char* src, size_t src_len, size_t* dst_len)

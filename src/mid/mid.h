@@ -27,6 +27,8 @@ public:
 #include <stdio.h>
 #include "mitm.h"
 
+//#define SUPPORT_CHUNK //Transfer-Encoding: chunked\r\n
+
 #define MAX_CHUNCK_LEN (64 * 1024)
 #define MAX_HTTP_LINE_BYTES 1024
 #define MAX_HTTP_HEAD_LINES 128

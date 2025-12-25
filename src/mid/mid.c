@@ -6,7 +6,8 @@
 
 static void fill_user_info(protohttp_ctx_t* http_ctx, http_info_t* phi);
 static char* read_one_line(char* head, size_t len, size_t* offset);
-enum app_right proper_type(char* content_type);
+static enum app_right proper_type(char* content_type);
+static int parse_http_chunk(protohttp_ctx_t* http_ctx);
 
 char* encode(enum compress_mode mode, char* buf, size_t buf_len, size_t* enc_len)
 {
@@ -290,12 +291,10 @@ int handle_req_data(char* http, size_t http_len, protohttp_ctx_t* http_ctx)
 	share->cb_response(share->arg, phi,
 		&out, &out_len, &http_ctx->free_func);
 
-	//not care http_content_length now, so free it
+	//request and response share it, so reset it
 	free(http_ctx->http_content_length);
 	http_ctx->http_content_length = NULL;
-	free_http_req_lines(http_ctx);
 
-	//for response
 	http_ctx->msg_body_len = 0;
 	http_ctx->msg_body_offset = 0;
 	return 0;
@@ -338,8 +337,6 @@ int protohttp_filter_request_header(
 	http_ctx->msg_body = http + offset;
 	http_ctx->msg_body_len = http_len - offset;
 
-	//now, not change request header, so free req_lines[req_total_lines]
-	free_http_req_lines(http_ctx);
 	return changed;
 }
 
@@ -636,7 +633,12 @@ int decom_content_call_app(protohttp_ctx_t* http_ctx)
 	return 1;
 }
 
-//here: http_ctx->get_all = 1
+/*
+ * here: http_ctx->get_all = 1
+ * return 
+ *	0: not change
+ *	1: changed
+*/
 int send_packet_to_app(protohttp_ctx_t* http_ctx)
 {
 	http_info_t* phi = http_ctx->phi;
@@ -674,11 +676,6 @@ int send_packet_to_app(protohttp_ctx_t* http_ctx)
 //http_ctx->cared = 1, msg_body = malloc(http_ctx->content_length);
 enum packet_handle_result save_packet(char* http, size_t http_len, protohttp_ctx_t* http_ctx)
 {
-	if (http_ctx->chunked) {
-		//now ony support one chunk in first http response
-		return PACKET_FORWARD;
-	}
-
 	//saved message body
 	size_t copied;
 	if ((http_ctx->msg_body_len + http_len) >= http_ctx->content_length)
@@ -689,6 +686,12 @@ enum packet_handle_result save_packet(char* http, size_t http_len, protohttp_ctx
 	memcpy(http_ctx->msg_body + http_ctx->msg_body_len, http, copied);
 	http_ctx->msg_body_len += copied;
 
+	if(http_ctx->chunked) {
+		//left chunk , only peek, not change; if want change, return PACKET_DISCARD
+		http_ctx->get_all = parse_http_chunk(http_ctx);
+		return PACKET_FORWARD;
+	}
+
 	if (http_ctx->msg_body_len < http_ctx->content_length) {
 		if (http_ctx->right == APP_RIGHT_PEEK)
 			return PACKET_FORWARD;
@@ -698,6 +701,7 @@ enum packet_handle_result save_packet(char* http, size_t http_len, protohttp_ctx
 	return PACKET_CHANGE;
 }
 
+//http response has only one packet
 void send_changed_http(int msg_body_changed, protohttp_ctx_t* http_ctx)
 {
 	//header max 2048 bytes
@@ -757,6 +761,7 @@ static void fill_user_info(protohttp_ctx_t* http_ctx, http_info_t* phi)
 	} else if (http_ctx->chunked) {
 		//Transfer-Encoding: chunked\r\n
 		phi->http_content_length = http_ctx->msg_body_len;
+		http_ctx->content_length = MAX_CHUNCK_LEN;
 	} else {
 		http_ctx->get_all = 1; //no "Content-Length" field, suppose only one packet
 		phi->http_content_length = http_ctx->msg_body_len;
@@ -842,6 +847,10 @@ int parse_http_chunk(protohttp_ctx_t* http_ctx)
 
 		if (!chunk_len) {
 			//end: 0\r\n\r\n
+			if(http_ctx->multi_packet) {
+				//free old, old content includes chunk header
+				free(http_ctx->msg_body);
+			}
 			http_ctx->msg_body = all;
 			http_ctx->msg_body_len = all_len;
 			return 1;
@@ -856,6 +865,8 @@ int parse_http_chunk(protohttp_ctx_t* http_ctx)
 		cur_len = (int)(cur_len - offset);
 	}
 
+	//only support all chunks with one packet
+	free(all);
 	return 0;
 }
 
@@ -904,7 +915,7 @@ enum packet_handle_result protohttp_handle_response_left(
 
 	if (http_ctx->get_all) {
 		//In some cases(e.g. chunk), 
-		// the length of the network packet is unknown, so set get_all=1,
+		//the length of the network packet is unknown, so set get_all=1,
 		//and it is simply ignored
 		return PACKET_FORWARD;
 	}
@@ -915,7 +926,6 @@ enum packet_handle_result protohttp_handle_response_left(
 		if (!http_ctx->get_all)
 			return change;
 
-		//here http_ctx->get_all is 1
 		int ret = send_packet_to_app(http_ctx);
 		if(!ret)
 			return PACKET_FORWARD;
@@ -963,6 +973,9 @@ enum packet_handle_result handle_response_first_body(
 		  here, msg_body_changed = 0, not free http_ctx->lines for future use
 		  */
 		save_msg_body(http_ctx, phi);
+		//first chunk , only peek, not change, if want change, return PACKET_DISCARD
+		if(http_ctx->chunked)
+			return PACKET_FORWARD;
 		if (http_ctx->right == APP_RIGHT_PEEK)
 			return PACKET_FORWARD; //app only peek content, not change it
 		return PACKET_DISCARD; //app may change content, so discard it

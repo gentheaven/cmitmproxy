@@ -32,11 +32,49 @@ MITM代理，解密/修改 https 流量
 
 ## 特征
 
-解密和修改 https 流量。
+1. 支持本机 http/https 代理
+2. 支持字符串的正则表达式查找和替换
+3. 支持查看和修改 HTTP 响应的内容
+4. 支持 HTTP 响应内容的压缩格式： gzip, deflate, br
+5. 提供示例程序：修改“雪球”网站内容
+6. 基于此代理，开发了微信短视频下载程序
+7. 支持查看 HTTP chunked 响应（需要打开宏 **SUPPORT_CHUNK**）
 
-1. 支持 HTTP 压缩和解压：Brotli，gzip，deflate
-2. 支持正则表达式查找和修改字符串
-3. 支持微信短视频播放和下载
+
+
+微信短视频下载程序：
+
+[WeChatVideo: 下载微信短视频](https://gitee.com/gentheaven/we-chat-video)
+
+
+
+## 限制
+
+1. **不支持修改 HTTP 请求**，只可以查看 HTTP 请求
+
+1. 需要**手动安装证书**（第一次运行时）
+
+1. 有时下载视频比较慢，有待改进
+
+1. **可以查看**  HTTP chunked 响应，不支持修改
+
+
+
+## HTTP chunked
+
+```http
+Transfer-Encoding: chunked\r\n
+```
+
+当前  HTTP chunked 支持不完善，默认不支持这个功能。
+
+如果想查看  HTTP chunked 响应，则需要打开宏 **SUPPORT_CHUNK**，在文件 mid.h 中。
+
+不支持修改 chunked 包，只支持查看。
+
+HTTP chunked 组成的包，包含包头，最大 **64KB**。
+
+主要是因为测试用例太少，没有修改  chunked 包的需求。
 
 
 
@@ -276,7 +314,7 @@ int http_response(void* arg, http_info_t* http_ctx,
 	*out = chg;
 	printf("replace OK, len is %lld\n\n", *out_len);
 
-	*need_free = 1;
+	*cb_free = free;
 	return 1;
 }
 
@@ -645,6 +683,197 @@ https://xueqiu.com/
 
 ![changed](./resources/changed.jpg)
 
+# 注意
+
+
+
+## 修改网页
+
+如果想修改网页，必须同时注册以下 3个函数：
+
+```c
+register_filter_cb_host(mitm, xxx); // 1次过滤，https 破解之前调用
+register_filter_cb_cared(mitm, xxx); // 2次过滤，https 破解之后调用
+register_action_cb_http(mitm, xxx); // 处理破解后的内容
+```
+
+
+
+当前只支持修改文本内容：
+
+即http 头部的 content type 字段为以下类型：
+
+- text/xxx
+- application/json
+- application/javascript
+
+```c
+enum app_right proper_type(char* content_type)
+{
+	if(!content_type)
+		return APP_RIGHT_PEEK;
+
+	//text/xxx, application/json, application/javascript
+	if(strstr(content_type, "text/"))
+		return APP_RIGHT_MAY_MODIFY;
+
+	if(!strncasecmp(content_type, "application/json",
+		strlen("application/json")))
+		return APP_RIGHT_MAY_MODIFY;
+
+	if(!strncasecmp(content_type, "application/javascript",
+		strlen("application/javascript")))
+		return APP_RIGHT_MAY_MODIFY;
+
+	return APP_RIGHT_PEEK;
+}
+```
+
+如果想支持更多类型，请修改函数 proper_type
+
+
+
+## 正则表达式工具
+
+用 regex_match 查找字符串；
+
+regex_replace 替换字符串。
+
+```c
+typedef int (*regex_on_match)(char* head,
+	size_t item_offset, size_t item_len, void* list);
+
+int regex_match(char* regex, char* str, unsigned int str_len,
+		int find_all,
+		regex_on_match on_match,
+		void* list);
+
+int regex_replace(char* content, unsigned int content_len,
+    char* regex_match, char* regex_replace,
+    char* chg_content, size_t* chg_len, int reg_extend_flag);
+```
+
+这个功能由代理提供。
+
+注意：字符串编码格式必须是纯英文或者 UTF8 的。
+
+这个功能为什么在代理中提供？
+
+因为 mitmproxy 提供 python 接口，python 可以很容易实现正则表达式查找和替换。
+
+这里只是证明本代理也可以做到，而且是 c 语言版本的。
+
+例如，以下是 python 代码：
+
+```python
+ modified_js = re.sub(
+            r'async finderGetCommentDetail\((\w+)\)\{return(.*?)\}async',  # 匹配
+            r"async finderGetCommentDetail(\1){const feedResult=await\2;var data_object=feedResult.data.object;var media=data_object.objectDesc.media[0];var fetch_body={duration:media.spec[0].durationMs,title:data_object.objectDesc.description,url:media.url+media.urlToken,size:media.fileSize,key:media.decodeKey,id:data_object.id,nonce_id:data_object.objectNonceId,nickname:data_object.nickname,createtime:data_object.createtime,fileFormat:media.spec.map(o => o.fileFormat)};fetch('https://www.httpbin.org/post',{method:'POST',headers:{'Content-Type':'application/json',},body:JSON.stringify(fetch_body)}).then(response=>{console.log(response.ok,response.body)});return feedResult;}async",      # 替换
+            original_js, flags=re.MULTILINE
+        )
+```
+
+3个输入参数：match 字符串，replace 字符串，原始内容 original_js
+
+1个输出：modified_js
+
+
+
+实现同样功能，用 c 代码：
+
+```c
+	char* regex_match_str = "async finderGetCommentDetail\\((\\w+)\\)\\{return(.*?)\\}async";
+	char *regex_replace_str = "async finderGetCommentDetail(\\1){const feedResult=await\\2;var data_object=feedResult.data.object;var media=data_object.objectDesc.media[0];var fetch_body={duration:media.spec[0].durationMs,title:data_object.objectDesc.description,url:media.url+media.urlToken,size:media.fileSize,key:media.decodeKey,id:data_object.id,nonce_id:data_object.objectNonceId,nickname:data_object.nickname,createtime:data_object.createtime,fileFormat:media.spec.map(o => o.fileFormat)};fetch('https://www.httpbin.org/post',{method:'POST',headers:{'Content-Type':'application/json',},body:JSON.stringify(fetch_body)}).then(response=>{console.log(response.ok,response.body)});return feedResult;}async";
+
+	int ret = regex_replace(ori, (unsigned int)ori_len,
+		regex_match_str, regex_replace_str, chg_content, chg_len, 1);
+```
+
+3个输入参数： match 字符串，replace 字符串，原始内容 **ori**[ori_len]
+
+1个输出参数：**chg_content**[chg_content] 这个缓存由调用者提供
+
+返回值：匹配次数
+
+
+
+### reg_extend_flag 
+
+reg_extend_flag 的取值
+
+```c
+/*
+* regex replace
+* reg_extend_flag = 0, not set PCRE2_SUBSTITUTE_EXTENDED
+* reg_extend_flag = 1, set PCRE2_SUBSTITUTE_EXTENDED
+* 
+*
+* out: chg_content[chg_len]
+*	chg_len: in/out, 
+		input chg_len = sizeof(chg_content)
+		output chg_len = The actual number of bytes output
+* 
+ return match count
+ return negatvie if error
+*/
+    
+int regex_replace(char* content, unsigned int content_len,
+    char* regex_match, char* regex_replace,
+    char* chg_content, size_t* chg_len, int reg_extend_flag);
+```
+
+`PCRE2_SUBSTITUTE_EXTEDED` 是 PCRE2（Perl Compatible Regular Expressions version 2）库中的一个选项标志，用于 `pcre2_substitute()` 函数。它**启用扩展的替换字符串语法**。
+
+
+
+举例说明：
+
+```c
+char* match = "(test)";
+char* replace = "\\U$1\\E";
+char* ori = "this is a test string";
+char chg_content[32];
+size_t chg_len = sizeof(chg_content);
+
+regex_replace(ori, strlen(ori), match, replace, chg_content, &chg_len, 1);
+//chg_content: this is a TEST string
+
+regex_replace(ori, strlen(ori), match, replace, chg_content, &chg_len, 0);
+//chg_content:this is a \Utest\Eing
+```
+
+```
+\U      - 开始大写转换
+\L      - 开始小写转换
+\u      - 下一个字符大写
+\l      - 下一个字符小写
+\E      - 结束大小写转换
+```
+
+
+
+reg_extend_flag = 1, 打印结果：
+
+```
+this is a TEST string
+```
+
+
+
+reg_extend_flag = 0, 打印结果：
+
+```
+this is a \Utest\Eing
+```
+
+
+
+| **有 reg_extend_flag**     | **无 reg_extend_flag**    |
+| :------------------------- | :------------------------ |
+| `\Utest\E` → `TEST`        | `\Utest\E` → 原样输出     |
+| `${1:+yes:no}` → 条件替换  | `${1:+yes:no}` → 原样输出 |
+| `${3:-default}` → 带默认值 | `${3}` → 只是普通引用     |
+
 
 
 
@@ -669,3 +898,6 @@ https://xueqiu.com/
 [mitm-6-mitm实现4-中间层 - 知乎](https://zhuanlan.zhihu.com/p/1986694682420483092)
 
 [mitm-7-mitm实现5-修改网页 - 知乎](https://zhuanlan.zhihu.com/p/1986733580605473879)
+
+[mitm-8-项目总结 - 知乎](https://zhuanlan.zhihu.com/p/1987420613028118838)
+
