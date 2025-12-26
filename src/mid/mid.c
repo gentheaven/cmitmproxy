@@ -78,7 +78,7 @@ void free_http_req_lines(protohttp_ctx_t* http_ctx)
 void free_http_mitm(protohttp_ctx_t* http_ctx)
 {
 	//re-org to msg_body -> dec -> changed by app:out -> enc -> add header:chg_http
-	if(http_ctx->multi_packet)
+	if(http_ctx->multi_packet && http_ctx->msg_body)
 		free(http_ctx->msg_body);
 	if(http_ctx->dec_msg)
 		free(http_ctx->dec_msg);
@@ -1066,6 +1066,15 @@ enum app_right judge_app_right(protohttp_ctx_t* http_ctx)
 	return proper_type(http_ctx->http_content_type);
 }
 
+//only one packet, parse_http_chunk malloc new buffer, here free it
+void free_first_chunk(protohttp_ctx_t* http_ctx)
+{
+	if(http_ctx->chunked && http_ctx->get_all) {
+		free(http_ctx->msg_body);
+		http_ctx->msg_body = NULL;
+	}
+}
+
 enum packet_handle_result protohttp_handle_response_first(
 		char* http, size_t http_len, protohttp_ctx_t* http_ctx)
 {
@@ -1104,11 +1113,13 @@ enum packet_handle_result protohttp_handle_response_first(
 	}
 
 	if (!http_ctx->cared) {
+		free_first_chunk(http_ctx);
 		return PACKET_FORWARD;
 	}
 
 	//4. here http_ctx->cared = 1, handle http body
 	change = handle_response_first_body(http_ctx, header_changed);
+	free_first_chunk(http_ctx);
 	return change;
 }
 
