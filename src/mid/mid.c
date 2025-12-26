@@ -636,7 +636,8 @@ int decom_content_call_app(protohttp_ctx_t* http_ctx)
 		//decompression failed, keep ori
 		phi->http_content = http_ctx->msg_body;
 		phi->http_content_length = http_ctx->msg_body_len;
-		return 0;
+		organize_new_http(0, http_ctx);
+		return 1;
 	}
 
 	//send decode data to app
